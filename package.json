@@ -1,6 +1,6 @@
 {
   "name": "ohos-signpost",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Automatically sign the binary files in node_modules on OpenHarmony.",
   "bin": {
     "ohos-signpost": "bin/ohos-signpost.js"

@@ -50,18 +50,18 @@ const knownTextBaseName = new Set([
 class Pool {
   /**
    * constructor
-   * @param maxConcurrency 最大并发数
+   * @param maxConcurrency Maximum Concurrency
    */
   constructor(maxConcurrency) {
     this.maxConcurrency = maxConcurrency;
-    // 当前运行的任务数
+    // The current number of running tasks
     this.running = 0;
-    // 等待队列：{ task, resolve, reject }
+    // waiting queue: { task, resolve, reject }
     this.queue = [];
   }
 
   /**
-   * 提交（执行）任务，返回一个Promise
+   * Submit a task and return a Promise
    * @param task
    * @returns {Promise<unknown>}
    */
@@ -73,7 +73,7 @@ class Pool {
   }
 
   /**
-   * 尝试从队列中取出任务执行
+   * Try to dequeue a task and execute it
    * @private
    */
   _drain() {
