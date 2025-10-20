@@ -48,27 +48,46 @@ const knownTextBaseName = new Set([
 
 // Concurrency pool
 class Pool {
-  constructor(size) {
-    this.size = size;
-    this.running = [];
+  /**
+   * constructor
+   * @param maxConcurrency 最大并发数
+   */
+  constructor(maxConcurrency) {
+    this.maxConcurrency = maxConcurrency;
+    // 当前运行的任务数
+    this.running = 0;
+    // 等待队列：{ task, resolve, reject }
+    this.queue = [];
   }
 
-  run(task) {
-    const taskPromise = task().finally(() => {
-      this.running.splice(this.running.indexOf(taskPromise), 1);
+  /**
+   * 提交（执行）任务，返回一个Promise
+   * @param task
+   * @returns {Promise<unknown>}
+   */
+  exec(task) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({task, resolve, reject});
+      this._drain();
     });
+  }
 
-    this.running.push(taskPromise);
-
-    if (this.running.length >= this.size) {
-      return Promise.race(this.running).then(() => taskPromise);
+  /**
+   * 尝试从队列中取出任务执行
+   * @private
+   */
+  _drain() {
+    if (this.running >= this.maxConcurrency || this.queue.length === 0) {
+      return;
     }
 
-    return taskPromise;
-  }
+    const {task, resolve, reject} = this.queue.shift();
+    this.running++;
 
-  drain() {
-    return Promise.all(this.running);
+    Promise.resolve().then(() => task()).then(resolve).catch(reject).finally(() => {
+      this.running--;
+      this._drain();
+    });
   }
 }
 
@@ -132,18 +151,21 @@ async function collectFiles(dir) {
 
 // Collect ELF files from a file list
 async function collectElf(filePaths) {
-  // Perform concurrency control to avoid opening too many file descriptors at once
   const pool = new Pool(64);
-
   const results = [];
 
   for (const filePath of filePaths) {
-    pool.run(async () => {
-      if (await isElf(filePath)) results.push(filePath);
+    await pool.exec(async () => {
+      try {
+        if (await isElf(filePath)) {
+          results.push(filePath)
+        }
+      } catch (err) {
+
+      }
     });
   }
 
-  await pool.drain();
   return results;
 }
 
