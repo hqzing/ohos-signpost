@@ -11,7 +11,7 @@ Add this package to your `devDependencies` and call it as a `postinstall` script
 ```json
 {
   "devDependencies": {
-    "ohos-signpost": "^0.0.1"
+    "ohos-signpost": "^1.0.0"
   },
   "scripts": {
     "postinstall": "ohos-signpost"
