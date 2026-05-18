@@ -7,7 +7,7 @@ if (process.platform != "openharmony") {
   console.warn(
     "Warning: ohos-signpost only works on OpenHarmony, it won't do anything on this platform."
   );
-  return;
+  process.exit(0);
 }
 
 const knownElfExtName = new Set([".so", ".node"]);
