@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-const fs = require("node:fs").promises;
-const { extname, basename, join, resolve } = require("node:path");
-const { displaySignSync, selfSignSync, getBinarySignToolPath } = require("ohos-binary-sign");
-
 if (process.platform != "openharmony") {
   console.warn(
     "Warning: ohos-signpost only works on OpenHarmony, it won't do anything on this platform."
   );
   process.exit(0);
 }
+
+const fs = require("node:fs").promises;
+const { extname, basename, join, resolve } = require("node:path");
+const { displaySignSync, selfSignSync, getBinarySignToolPath } = require("ohos-binary-sign");
 
 const knownElfExtName = new Set([".so", ".node"]);
 const knownTextExtName = new Set([
