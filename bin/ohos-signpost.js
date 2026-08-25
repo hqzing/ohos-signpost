@@ -8,7 +8,10 @@ if (process.platform != "openharmony") {
 
 const fs = require("node:fs").promises;
 const { extname, basename, join, resolve } = require("node:path");
-const { displaySignSync, selfSignSync, getBinarySignToolPath } = require("ohos-binary-sign");
+const {
+  signFileAtomic,
+  hasCodesignSection,
+} = require("../lib/selfsign.js");
 
 const knownElfExtName = new Set([".so", ".node"]);
 const knownTextExtName = new Set([
@@ -172,20 +175,16 @@ async function collectElf(filePaths) {
 // Batch add signatures to ELF files
 function batchSign(filePaths) {
   for (const filePath of filePaths) {
-    // The signing tool itself does not need to be signed
-    if (filePath === getBinarySignToolPath()) {
-      continue;
-    }
-
     try {
-      const stdout = displaySignSync({ inFile: filePath });
-      if (stdout.includes("code signature is not found")) {
-        selfSignSync(filePath);
-        console.log(`Signature successfully added to: ${filePath}`);
-      } else {
+      // Skip already-signed files to avoid redundant re-signing
+      const raw = require("node:fs").readFileSync(filePath);
+      if (hasCodesignSection(raw)) {
         console.warn(`Warning: File already signed, signing skipped: ${filePath}`);
+        continue;
       }
-    } catch {
+      signFileAtomic(filePath, false);
+      console.log(`Signature successfully added to: ${filePath}`);
+    } catch (err) {
       console.warn(`Warning: Failed to process this file, signing skipped: ${filePath}`);
     }
   }
@@ -198,4 +197,3 @@ function batchSign(filePaths) {
   const elfFilePaths = await collectElf(allFilePaths);
   batchSign(elfFilePaths);
 })();
-
