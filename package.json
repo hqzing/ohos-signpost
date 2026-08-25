@@ -1,20 +1,18 @@
 {
   "name": "ohos-signpost",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Automatically sign the binary files in node_modules on OpenHarmony.",
   "bin": {
     "ohos-signpost": "bin/ohos-signpost.js"
   },
   "license": "MIT",
-  "dependencies": {
-    "ohos-binary-sign": "^1.0.0"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hqzing/ohos-signpost.git"
   },
   "files": [
     "bin/",
+    "lib/",
     "LICENSE",
     "README.md"
   ]
