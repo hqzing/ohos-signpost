@@ -6,6 +6,24 @@
     "ohos-signpost": "bin/ohos-signpost.js"
   },
   "license": "MIT",
+  "author": "hqzing <hqzing@outlook.com>",
+  "homepage": "https://github.com/hqzing/ohos-signpost#readme",
+  "bugs": {
+    "url": "https://github.com/hqzing/ohos-signpost/issues"
+  },
+  "keywords": [
+    "openharmony",
+    "harmonyos",
+    "ohos",
+    "signing",
+    "elf",
+    "codesign",
+    "node-addon",
+    "postinstall"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test"
   },
@@ -17,6 +35,7 @@
     "bin/",
     "lib/",
     "LICENSE",
+    "NOTICE",
     "README.md"
   ]
 }
