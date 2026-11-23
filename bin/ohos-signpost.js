@@ -49,32 +49,6 @@ const knownTextBaseName = new Set([
   "notice",
 ]);
 
-// Concurrency pool
-class Pool {
-  constructor(size) {
-    this.size = size;
-    this.running = [];
-  }
-
-  run(task) {
-    const taskPromise = task().finally(() => {
-      this.running.splice(this.running.indexOf(taskPromise), 1);
-    });
-
-    this.running.push(taskPromise);
-
-    if (this.running.length >= this.size) {
-      return Promise.race(this.running).then(() => taskPromise);
-    }
-
-    return taskPromise;
-  }
-
-  drain() {
-    return Promise.all(this.running);
-  }
-}
-
 async function hasElfMagic(filePath) {
   const elfMagic = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
   const handle = await fs.open(filePath, "r");
@@ -133,20 +107,32 @@ async function collectFiles(dir) {
   return files;
 }
 
-// Collect ELF files from a file list
+// Collect ELF files from a file list.
+// A fixed number of workers share a cursor, so at most `concurrency` files
+// are open at once while the scan still runs in parallel. The previous pool
+// started every isElf() eagerly, opening one descriptor per file on large
+// node_modules trees; this bounds it without serializing the scan.
 async function collectElf(filePaths) {
-  // Perform concurrency control to avoid opening too many file descriptors at once
-  const pool = new Pool(64);
-
+  const concurrency = 64;
   const results = [];
+  let cursor = 0;
 
-  for (const filePath of filePaths) {
-    pool.run(async () => {
-      if (await isElf(filePath)) results.push(filePath);
-    });
+  async function worker() {
+    while (cursor < filePaths.length) {
+      const filePath = filePaths[cursor++];
+      try {
+        if (await isElf(filePath)) {
+          results.push(filePath);
+        }
+      } catch {
+        // isElf already handles its own errors; ignore unexpected ones.
+      }
+    }
   }
 
-  await pool.drain();
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, filePaths.length) }, worker),
+  );
   return results;
 }
 
