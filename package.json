@@ -5,7 +5,7 @@
   "bin": {
     "ohos-signpost": "bin/ohos-signpost.js"
   },
-  "license": "MIT",
+  "license": "0BSD",
   "scripts": {
     "test": "node --test"
   },
