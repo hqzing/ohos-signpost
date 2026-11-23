@@ -8,12 +8,18 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  buildDescriptor,
+  checkSelfsign,
+  findSectionByName,
   hasCodesignSection,
+  merkleRootHash,
   parseElfHeader,
   signElf,
   signFileAtomic,
   stripCodesign,
 } = require("../lib/selfsign.js");
+
+const CODESIGN_NAME = Buffer.from(".codesign\0", "latin1");
 
 const projectRoot = path.resolve(__dirname, "..");
 const cliPath = path.join(projectRoot, "bin", "ohos-signpost.js");
@@ -61,14 +67,14 @@ function align(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
 }
 
-function createUnsignedElf64() {
+function createUnsignedElf64(shentsize = 64) {
   const text = Buffer.from([0x1f, 0x20, 0x03, 0xd5]);
   const shstrtab = Buffer.from("\0.text\0.shstrtab\0", "latin1");
   const textOffset = 64;
   const shstrtabOffset = textOffset + text.length;
   const sectionHeaderOffset = align(shstrtabOffset + shstrtab.length, 8);
   const sectionHeaderCount = 3;
-  const elf = Buffer.alloc(sectionHeaderOffset + sectionHeaderCount * 64);
+  const elf = Buffer.alloc(sectionHeaderOffset + sectionHeaderCount * shentsize);
 
   elf.set([0x7f, 0x45, 0x4c, 0x46], 0);
   elf[4] = 2;
@@ -81,14 +87,14 @@ function createUnsignedElf64() {
   elf.writeBigUInt64LE(BigInt(sectionHeaderOffset), 40);
   elf.writeUInt16LE(64, 52);
   elf.writeUInt16LE(56, 54);
-  elf.writeUInt16LE(64, 58);
+  elf.writeUInt16LE(shentsize, 58);
   elf.writeUInt16LE(sectionHeaderCount, 60);
   elf.writeUInt16LE(2, 62);
 
   text.copy(elf, textOffset);
   shstrtab.copy(elf, shstrtabOffset);
 
-  const textSection = sectionHeaderOffset + 64;
+  const textSection = sectionHeaderOffset + shentsize;
   elf.writeUInt32LE(1, textSection);
   elf.writeUInt32LE(1, textSection + 4);
   elf.writeBigUInt64LE(6n, textSection + 8);
@@ -96,7 +102,7 @@ function createUnsignedElf64() {
   elf.writeBigUInt64LE(BigInt(text.length), textSection + 32);
   elf.writeBigUInt64LE(4n, textSection + 48);
 
-  const shstrtabSection = sectionHeaderOffset + 128;
+  const shstrtabSection = sectionHeaderOffset + 2 * shentsize;
   elf.writeUInt32LE(7, shstrtabSection);
   elf.writeUInt32LE(3, shstrtabSection + 4);
   elf.writeBigUInt64LE(BigInt(shstrtabOffset), shstrtabSection + 24);
@@ -138,6 +144,20 @@ function countCodesignSections(elf) {
     }
   }
   return count;
+}
+
+function findCodesignOffset(elf) {
+  const { e_shoff, e_shentsize, e_shnum, e_shstrndx } = parseElfHeader(elf);
+  const entry = findSectionByName(
+    elf,
+    e_shoff,
+    e_shentsize,
+    e_shnum,
+    e_shstrndx,
+    CODESIGN_NAME,
+  );
+  assert.notEqual(entry, -1);
+  return Number(elf.readBigUInt64LE(entry + 24));
 }
 
 test("signElf adds a self-signature and marks the binary as signed", () => {
@@ -318,3 +338,81 @@ test(
     assert.match(lenient.stderr, /ohos-signpost failed/);
   },
 );
+
+test("checkSelfsign validates a fresh signature and detects tampering", () => {
+  const signed = signElf(createUnsignedElf64(), false);
+  assert.deepEqual(checkSelfsign(signed), { ok: true, reason: null });
+
+  const csOff = findCodesignOffset(signed);
+
+  const badSize = Buffer.from(signed);
+  badSize.writeBigUInt64LE(BigInt(signed.length + 4096), csOff + 8 + 8);
+  assert.deepEqual(checkSelfsign(badSize), {
+    ok: false,
+    reason: "fileSize mismatch",
+  });
+
+  const badRoot = Buffer.from(signed);
+  badRoot[csOff + 8 + 16] ^= 0xff;
+  assert.deepEqual(checkSelfsign(badRoot), {
+    ok: false,
+    reason: "merkle root mismatch",
+  });
+
+  const badSig = Buffer.from(signed);
+  badSig[csOff + 8 + 256] ^= 0xff;
+  assert.deepEqual(checkSelfsign(badSig), {
+    ok: false,
+    reason: "signature mismatch",
+  });
+});
+
+test("parseElfHeader and signing accept extended section headers", () => {
+  const elf = createUnsignedElf64(72);
+  const header = parseElfHeader(elf);
+  assert.equal(header.e_shentsize, 72);
+
+  const signed = signElf(elf, false);
+  assert.equal(hasCodesignSection(signed), true);
+  assert.deepEqual(checkSelfsign(signed), { ok: true, reason: null });
+});
+
+test("parseElfHeader rejects malformed input", () => {
+  assert.throws(() => parseElfHeader(Buffer.from("not an ELF")), /not ELF64/);
+  assert.throws(() => parseElfHeader(Buffer.alloc(64)), /not ELF64/);
+});
+
+test("merkleRootHash is deterministic and sensitive to content changes", () => {
+  const a = Buffer.alloc(8192, 0x11);
+  const b = Buffer.from(a);
+  b[100] = 0x22;
+
+  const first = merkleRootHash(a, 4096, 4096);
+  const second = merkleRootHash(a, 4096, 4096);
+  const changed = merkleRootHash(b, 4096, 4096);
+
+  assert.deepEqual(first, second);
+  assert.equal(first.root.length, 32);
+  assert.notDeepEqual(first.root, changed.root);
+});
+
+test("buildDescriptor writes the documented field offsets", () => {
+  const root = Buffer.alloc(32, 0xab);
+  const descriptor = buildDescriptor(32, 12345, root, 0x10);
+
+  assert.equal(descriptor.length, 256);
+  assert.equal(descriptor[0], 1);
+  assert.equal(descriptor[1], 1);
+  assert.equal(descriptor[2], 12);
+  assert.equal(descriptor[3], 0);
+  assert.equal(descriptor.readUInt32LE(4), 32);
+  assert.equal(Number(descriptor.readBigUInt64LE(8)), 12345);
+  assert.deepEqual(descriptor.subarray(16, 48), root);
+  assert.equal(descriptor.readUInt32LE(112), 0x10);
+  assert.equal(descriptor[255], 3);
+});
+
+test("hasCodesignSection returns false for malformed input", () => {
+  assert.equal(hasCodesignSection(Buffer.from("not an ELF")), false);
+  assert.equal(hasCodesignSection(Buffer.alloc(64)), false);
+});
