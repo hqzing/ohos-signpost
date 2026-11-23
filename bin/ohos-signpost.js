@@ -51,46 +51,27 @@ const knownTextBaseName = new Set([
 
 // Concurrency pool
 class Pool {
-  /**
-   * constructor
-   * @param maxConcurrency Maximum Concurrency
-   */
-  constructor(maxConcurrency) {
-    this.maxConcurrency = maxConcurrency;
-    // The current number of running tasks
-    this.running = 0;
-    // waiting queue: { task, resolve, reject }
-    this.queue = [];
+  constructor(size) {
+    this.size = size;
+    this.running = [];
   }
 
-  /**
-   * Submit a task and return a Promise
-   * @param task
-   * @returns {Promise<unknown>}
-   */
-  exec(task) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({task, resolve, reject});
-      this._drain();
+  run(task) {
+    const taskPromise = task().finally(() => {
+      this.running.splice(this.running.indexOf(taskPromise), 1);
     });
-  }
 
-  /**
-   * Try to dequeue a task and execute it
-   * @private
-   */
-  _drain() {
-    if (this.running >= this.maxConcurrency || this.queue.length === 0) {
-      return;
+    this.running.push(taskPromise);
+
+    if (this.running.length >= this.size) {
+      return Promise.race(this.running).then(() => taskPromise);
     }
 
-    const {task, resolve, reject} = this.queue.shift();
-    this.running++;
+    return taskPromise;
+  }
 
-    Promise.resolve().then(() => task()).then(resolve).catch(reject).finally(() => {
-      this.running--;
-      this._drain();
-    });
+  drain() {
+    return Promise.all(this.running);
   }
 }
 
@@ -154,21 +135,18 @@ async function collectFiles(dir) {
 
 // Collect ELF files from a file list
 async function collectElf(filePaths) {
+  // Perform concurrency control to avoid opening too many file descriptors at once
   const pool = new Pool(64);
+
   const results = [];
 
   for (const filePath of filePaths) {
-    await pool.exec(async () => {
-      try {
-        if (await isElf(filePath)) {
-          results.push(filePath)
-        }
-      } catch (err) {
-
-      }
+    pool.run(async () => {
+      if (await isElf(filePath)) results.push(filePath);
     });
   }
 
+  await pool.drain();
   return results;
 }
 
