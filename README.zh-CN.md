@@ -17,7 +17,7 @@
 ```json
 {
   "devDependencies": {
-    "ohos-signpost": "^1.2.0"
+    "ohos-signpost": "^1.3.0"
   },
   "scripts": {
     "postinstall": "ohos-signpost"
