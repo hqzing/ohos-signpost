@@ -29,3 +29,5 @@ When you run `npm install`, the hook triggers automatically:
 
 * **On OpenHarmony**: It scans `node_modules` and signs all valid ELF binaries (`.so`, `.node`, etc.).
 * **On other platforms**: It safely bypasses the execution without blocking the installation process.
+
+For more information, see the [usage guide](USAGE.md).

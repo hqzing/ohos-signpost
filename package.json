@@ -18,7 +18,9 @@
     "lib/",
     "LICENSE",
     "README.md",
-    "README.zh-CN.md"
+    "README.zh-CN.md",
+    "USAGE.md",
+    "USAGE.zh-CN.md"
   ]
 }
 
