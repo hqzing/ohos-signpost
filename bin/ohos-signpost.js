@@ -138,26 +138,57 @@ async function collectElf(filePaths) {
 
 // Batch add signatures to ELF files
 function batchSign(filePaths) {
+  const stats = { scanned: filePaths.length, signed: 0, skipped: 0, failed: 0 };
   for (const filePath of filePaths) {
     try {
       // Skip already-signed files to avoid redundant re-signing
       const raw = require("node:fs").readFileSync(filePath);
       if (hasCodesignSection(raw)) {
+        stats.skipped++;
         console.warn(`Warning: File already signed, signing skipped: ${filePath}`);
         continue;
       }
       signFileAtomic(filePath, false);
+      stats.signed++;
       console.log(`Signature successfully added to: ${filePath}`);
     } catch (err) {
-      console.warn(`Warning: Failed to process this file, signing skipped: ${filePath}`);
+      stats.failed++;
+      console.warn(`Warning: Failed to sign ${filePath}: ${err.message}`);
     }
   }
+  console.log(
+    `ohos-signpost: scanned ${stats.scanned}, signed ${stats.signed}, ` +
+      `skipped ${stats.skipped} (already signed), failed ${stats.failed}`,
+  );
+  return stats;
 }
 
 // Main process
 (async () => {
   const nodeModulesPath = resolve(process.cwd(), "node_modules");
+  let stat;
+  try {
+    stat = await fs.stat(nodeModulesPath);
+  } catch (err) {
+    // Only the expected "no node_modules" case is a no-op (Yarn PnP, a
+    // project with no dependencies). Any other failure — notably EACCES —
+    // must reach the outer handler so strict mode can fail the install.
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+  if (!stat.isDirectory()) return;
+
   const allFilePaths = await collectFiles(nodeModulesPath);
   const elfFilePaths = await collectElf(allFilePaths);
-  batchSign(elfFilePaths);
-})();
+  const stats = batchSign(elfFilePaths);
+  if (stats.failed > 0 && process.env.OHOS_SIGNPOST_STRICT === "1") {
+    process.exitCode = 1;
+  }
+})().catch((err) => {
+  console.warn(`Warning: ohos-signpost failed: ${err.message}`);
+  // A top-level failure (e.g. node_modules exists but is unreadable) must
+  // also fail the install in strict mode, just like per-file failures.
+  if (process.env.OHOS_SIGNPOST_STRICT === "1") {
+    process.exitCode = 1;
+  }
+});
