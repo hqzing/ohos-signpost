@@ -18,6 +18,45 @@ const {
 const projectRoot = path.resolve(__dirname, "..");
 const cliPath = path.join(projectRoot, "bin", "ohos-signpost.js");
 
+// Fault-injection bootstrap, run inline via `node -e` so the test layout stays
+// flat. A real chmod 000 is not reliable when the OpenHarmony CI runs as root.
+const EACCES_BOOTSTRAP = `
+"use strict";
+const fs = require("node:fs").promises;
+const origReaddir = fs.readdir;
+fs.readdir = async function (p, ...args) {
+  if (String(p) === process.env.OHOS_SIGNPOST_TEST_EACCES_PATH) {
+    const err = new Error("EACCES: permission denied, scandir '" + p + "'");
+    err.code = "EACCES";
+    throw err;
+  }
+  return origReaddir.call(this, p, ...args);
+};
+const origStat = fs.stat;
+fs.stat = async function (p, ...args) {
+  if (String(p) === process.env.OHOS_SIGNPOST_TEST_STAT_EACCES_PATH) {
+    const err = new Error("EACCES: permission denied, stat '" + p + "'");
+    err.code = "EACCES";
+    throw err;
+  }
+  return origStat.call(this, p, ...args);
+};
+require(process.env.OHOS_SIGNPOST_TEST_CLI_PATH);
+`;
+
+function runCliWithFaultInjection(directory, faultEnv, strict) {
+  return spawnSync(process.execPath, ["-e", EACCES_BOOTSTRAP], {
+    cwd: directory,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OHOS_SIGNPOST_TEST_CLI_PATH: cliPath,
+      ...faultEnv,
+      OHOS_SIGNPOST_STRICT: strict ? "1" : "0",
+    },
+  });
+}
+
 function align(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
 }
@@ -227,5 +266,55 @@ test(
     assert.equal(fs.lstatSync(symlink).isSymbolicLink(), true);
     assert.equal(hasCodesignSection(fs.readFileSync(externalElf)), false);
     assert.match(result.stderr, /already signed/);
+  },
+);
+
+test(
+  "CLI strict mode fails on top-level errors (EACCES reading node_modules)",
+  { skip: process.platform !== "openharmony" && "requires OpenHarmony" },
+  (t) => {
+    const directory = makeTempDir(t);
+    const nodeModules = path.join(directory, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+
+    const runCli = (strict) =>
+      runCliWithFaultInjection(
+        directory,
+        { OHOS_SIGNPOST_TEST_EACCES_PATH: nodeModules },
+        strict,
+      );
+
+    const strict = runCli(true);
+    assert.equal(strict.status, 1, strict.stderr);
+    assert.match(strict.stderr, /ohos-signpost failed/);
+
+    const lenient = runCli(false);
+    assert.equal(lenient.status, 0, lenient.stderr);
+    assert.match(lenient.stderr, /ohos-signpost failed/);
+  },
+);
+
+test(
+  "CLI strict mode fails when fs.stat(node_modules) fails with EACCES",
+  { skip: process.platform !== "openharmony" && "requires OpenHarmony" },
+  (t) => {
+    const directory = makeTempDir(t);
+    const nodeModules = path.join(directory, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+
+    const runCli = (strict) =>
+      runCliWithFaultInjection(
+        directory,
+        { OHOS_SIGNPOST_TEST_STAT_EACCES_PATH: nodeModules },
+        strict,
+      );
+
+    const strict = runCli(true);
+    assert.equal(strict.status, 1, strict.stderr);
+    assert.match(strict.stderr, /ohos-signpost failed/);
+
+    const lenient = runCli(false);
+    assert.equal(lenient.status, 0, lenient.stderr);
+    assert.match(lenient.stderr, /ohos-signpost failed/);
   },
 );
