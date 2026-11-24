@@ -1,3 +1,7 @@
+<div align="center">
+<p>English | <a href="README.zh-CN.md">简体中文</a></p>
+</div>
+
 # ohos-signpost
 
 Automatically sign the binary files in `node_modules` on OpenHarmony.
